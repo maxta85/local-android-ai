@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "rz2_sFz7GvjVw_i69qmTF"
+uri = "file://artifacts/llm-chat/assets/images/icon.png"
+type = "image"
+title = "offline llm chat app icon"
