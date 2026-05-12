@@ -188,9 +188,14 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
     }));
 
     try {
+      // Always ensure the directory exists before downloading
+      await FileSystem.makeDirectoryAsync(MODELS_DIR, { intermediates: true }).catch(() => {});
+
       const destPath = MODELS_DIR + preset.filename;
-      const existing = await FileSystem.getInfoAsync(destPath);
-      if (existing.exists) {
+
+      // Check if already downloaded with a non-zero size
+      const existing = await FileSystem.getInfoAsync(destPath, { size: true });
+      if (existing.exists && (existing as any).size > 0) {
         setDownloads((prev) => {
           const next = { ...prev };
           delete next[modelId];
@@ -200,15 +205,40 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Delete any partial/zero-byte file from a previous failed attempt
+      if (existing.exists) {
+        await FileSystem.deleteAsync(destPath, { idempotent: true });
+      }
+
+      // Resolve the final URL — HuggingFace uses redirects to their CDN.
+      // expo-file-system on Android can fail to follow cross-domain redirects,
+      // so we resolve the final URL with fetch first.
+      let finalUrl = preset.url;
+      try {
+        const res = await fetch(preset.url, {
+          method: "HEAD",
+          redirect: "follow",
+        });
+        if (res.url && res.url !== preset.url) {
+          finalUrl = res.url;
+        }
+      } catch {
+        // HEAD may fail for some CDNs — fall back to original URL
+      }
+
       const downloadResumable = FileSystem.createDownloadResumable(
-        preset.url,
+        finalUrl,
         destPath,
-        {},
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 PocketAI/1.0",
+          },
+        },
         (progress) => {
           const pct =
             progress.totalBytesExpectedToWrite > 0
-              ? progress.totalBytesWritten /
-                progress.totalBytesExpectedToWrite
+              ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
               : 0;
           setDownloads((prev) => ({
             ...prev,
@@ -218,7 +248,13 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
       );
 
       downloadResumablesRef.current[modelId] = downloadResumable;
-      await downloadResumable.downloadAsync();
+      const result = await downloadResumable.downloadAsync();
+
+      if (!result?.uri) {
+        // Clean up partial file
+        await FileSystem.deleteAsync(destPath, { idempotent: true });
+        throw new Error("Download was cancelled or returned no data.");
+      }
 
       setDownloads((prev) => {
         const next = { ...prev };
@@ -228,20 +264,35 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
       delete downloadResumablesRef.current[modelId];
       await refreshModels();
     } catch (e: any) {
-      if (e?.message?.includes("cancelled") || e?.code === "E_CANCELLED") {
+      delete downloadResumablesRef.current[modelId];
+
+      const isCancelled =
+        e?.message?.toLowerCase().includes("cancel") ||
+        e?.code === "E_CANCELLED" ||
+        e?.code === "ERR_CANCELED";
+
+      if (isCancelled) {
         setDownloads((prev) => {
           const next = { ...prev };
           delete next[modelId];
           return next;
         });
       } else {
+        const msg =
+          e?.message?.includes("Network request failed") ||
+          e?.message?.includes("ERR_NETWORK")
+            ? "Network error — check your Wi-Fi connection and try again."
+            : e?.message?.includes("404")
+            ? "Model file not found on server (URL may have changed)."
+            : (e?.message ?? "Download failed — tap Retry to try again.");
+
         setDownloads((prev) => ({
           ...prev,
           [modelId]: {
             modelId,
             progress: 0,
             isDownloading: false,
-            error: e?.message ?? "Download failed",
+            error: msg,
           },
         }));
       }

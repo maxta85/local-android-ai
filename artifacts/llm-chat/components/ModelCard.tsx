@@ -197,6 +197,22 @@ export default function ModelCard({
       fontSize: 12,
       fontFamily: "Inter_600SemiBold",
     },
+    errorBox: {
+      flexDirection: "row" as const,
+      alignItems: "flex-start" as const,
+      gap: 6,
+      marginTop: 10,
+      backgroundColor: colors.destructive + "18",
+      borderRadius: 8,
+      padding: 8,
+    },
+    errorText: {
+      color: colors.destructive,
+      fontSize: 12,
+      fontFamily: "Inter_400Regular",
+      flex: 1,
+      lineHeight: 17,
+    },
   });
 
   return (
@@ -308,7 +324,7 @@ export default function ModelCard({
           </TouchableOpacity>
         )}
 
-        {hasError && (
+        {hasError && !isDownloaded && (
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary]}
             onPress={handleDownload}
@@ -319,6 +335,13 @@ export default function ModelCard({
           </TouchableOpacity>
         )}
       </View>
+
+      {hasError && downloadState?.error && (
+        <View style={styles.errorBox}>
+          <Feather name="alert-circle" size={13} color={colors.destructive} />
+          <Text style={styles.errorText}>{downloadState.error}</Text>
+        </View>
+      )}
     </View>
   );
 }
