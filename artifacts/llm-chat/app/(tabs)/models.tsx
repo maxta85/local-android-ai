@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -30,6 +31,8 @@ export default function ModelsScreen() {
     downloads,
     loadModel,
     downloadModel,
+    importFromFiles,
+    isImporting,
   } = useLlama();
   const [customUrl, setCustomUrl] = useState("");
   const [showCustom, setShowCustom] = useState(false);
@@ -39,6 +42,11 @@ export default function ModelsScreen() {
     router.back();
   }
 
+  function handleImport() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    importFromFiles();
+  }
+
   function handleCustomDownload() {
     const trimmed = customUrl.trim();
     if (!trimmed.endsWith(".gguf")) {
@@ -46,6 +54,7 @@ export default function ModelsScreen() {
       return;
     }
     const filename = trimmed.split("/").pop() ?? "custom.gguf";
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     downloadModel({
       id: "custom-" + Date.now(),
       name: filename,
@@ -75,11 +84,7 @@ export default function ModelsScreen() {
       alignItems: "center",
       paddingHorizontal: 16,
       paddingTop:
-        insets.top > 0
-          ? insets.top + 8
-          : Platform.OS === "web"
-          ? 67
-          : 16,
+        insets.top > 0 ? insets.top + 8 : Platform.OS === "web" ? 67 : 16,
       paddingBottom: 14,
       backgroundColor: colors.header,
       borderBottomWidth: 1,
@@ -99,13 +104,56 @@ export default function ModelsScreen() {
       fontFamily: "Inter_600SemiBold",
       flex: 1,
     },
-    addBtn: {
+    headerActions: {
+      flexDirection: "row",
+      gap: 6,
+    },
+    iconBtn: {
       width: 36,
       height: 36,
       borderRadius: 18,
       backgroundColor: colors.surface,
       alignItems: "center",
       justifyContent: "center",
+    },
+    importBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      backgroundColor: colors.primary + "18",
+      borderRadius: 12,
+      marginHorizontal: 16,
+      marginTop: 16,
+      padding: 14,
+    },
+    importBannerContent: {
+      flex: 1,
+    },
+    importBannerTitle: {
+      color: colors.foreground,
+      fontSize: 14,
+      fontFamily: "Inter_600SemiBold",
+      marginBottom: 2,
+    },
+    importBannerSub: {
+      color: colors.mutedForeground,
+      fontSize: 12,
+      fontFamily: "Inter_400Regular",
+      lineHeight: 16,
+    },
+    importBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    importBtnText: {
+      color: "#fff",
+      fontSize: 13,
+      fontFamily: "Inter_600SemiBold",
     },
     section: {
       paddingHorizontal: 16,
@@ -164,6 +212,12 @@ export default function ModelsScreen() {
       fontSize: 14,
       fontFamily: "Inter_500Medium",
     },
+    customHint: {
+      color: colors.mutedForeground,
+      fontSize: 12,
+      fontFamily: "Inter_400Regular",
+      lineHeight: 16,
+    },
     customInput: {
       backgroundColor: colors.surface,
       borderRadius: 10,
@@ -188,7 +242,8 @@ export default function ModelsScreen() {
       fontFamily: "Inter_600SemiBold",
     },
     spacer: {
-      height: insets.bottom > 0 ? insets.bottom + 8 : (Platform.OS === "web" ? 34 : 20),
+      height:
+        insets.bottom > 0 ? insets.bottom + 8 : Platform.OS === "web" ? 34 : 20,
     },
   });
 
@@ -199,16 +254,18 @@ export default function ModelsScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Models</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => setShowCustom((v) => !v)}
-        >
-          <Feather
-            name={showCustom ? "x" : "link"}
-            size={16}
-            color={colors.mutedForeground}
-          />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => setShowCustom((v) => !v)}
+          >
+            <Feather
+              name={showCustom ? "x" : "link"}
+              size={16}
+              color={colors.mutedForeground}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -230,10 +287,39 @@ export default function ModelsScreen() {
           </View>
         )}
 
+        {/* Import from Files banner */}
+        <View style={styles.importBanner}>
+          <View style={styles.importBannerContent}>
+            <Text style={styles.importBannerTitle}>Import from Files</Text>
+            <Text style={styles.importBannerSub}>
+              Already downloaded a .gguf to your phone? Tap to import it directly.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.importBtn}
+            onPress={handleImport}
+            disabled={isImporting}
+            activeOpacity={0.85}
+          >
+            {isImporting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Feather name="folder" size={14} color="#fff" />
+            )}
+            <Text style={styles.importBtnText}>
+              {isImporting ? "Importing…" : "Browse"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Custom URL download */}
         {showCustom && (
           <View style={styles.section}>
             <View style={styles.customUrlBox}>
-              <Text style={styles.customLabel}>Custom GGUF URL</Text>
+              <Text style={styles.customLabel}>Download from URL</Text>
+              <Text style={styles.customHint}>
+                Paste a direct link to any .gguf model file (e.g. from HuggingFace).
+              </Text>
               <TextInput
                 style={styles.customInput}
                 value={customUrl}
@@ -247,7 +333,7 @@ export default function ModelsScreen() {
                 style={styles.customBtn}
                 onPress={handleCustomDownload}
               >
-                <Text style={styles.customBtnText}>Download</Text>
+                <Text style={styles.customBtnText}>Start Download</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -276,7 +362,7 @@ export default function ModelsScreen() {
         {downloadedModels.filter((m) => m.isCustom).length > 0 && (
           <>
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Custom Models</Text>
+              <Text style={styles.sectionTitle}>Imported / Custom</Text>
             </View>
             {downloadedModels
               .filter((m) => m.isCustom)
@@ -286,7 +372,7 @@ export default function ModelsScreen() {
                   preset={{
                     id: file.filename,
                     name: file.filename.replace(".gguf", ""),
-                    description: "Custom downloaded model",
+                    description: "Imported model",
                     paramCount: "?",
                     size:
                       file.sizeBytes > 0
@@ -299,7 +385,7 @@ export default function ModelsScreen() {
                     chatTemplate: "chatml",
                     stopTokens: ["</s>", "<|im_end|>"],
                     recommendedContextLength: 4096,
-                    tags: ["custom"],
+                    tags: ["imported"],
                   }}
                   downloadedFile={file}
                   isActive={activeModel?.filename === file.filename}

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import React, {
   createContext,
@@ -15,6 +16,7 @@ import { ChatTemplate, ModelPreset, PRESET_MODELS } from "@/utils/models";
 const MODELS_DIR = FileSystem.documentDirectory + "models/";
 const SETTINGS_KEY = "llm_settings";
 const ACTIVE_MODEL_KEY = "llm_active_model";
+const RESUME_STATES_KEY = "download_resume_states";
 
 export interface ModelFile {
   filename: string;
@@ -40,7 +42,17 @@ export interface DownloadState {
   modelId: string;
   progress: number;
   isDownloading: boolean;
+  isPaused: boolean;
   error?: string;
+}
+
+interface SavedResumeState {
+  modelId: string;
+  url: string;
+  fileUri: string;
+  resumeData: string;
+  progress: number;
+  preset: ModelPreset;
 }
 
 const DEFAULT_SETTINGS: LlamaSettings = {
@@ -66,17 +78,18 @@ interface LlamaContextValue {
   loadModelError: string | null;
   downloads: Record<string, DownloadState>;
   isGenerating: boolean;
+  isImporting: boolean;
   downloadModel: (preset: ModelPreset) => Promise<void>;
-  cancelDownload: (modelId: string) => void;
+  pauseDownload: (modelId: string) => Promise<void>;
+  resumeDownload: (modelId: string) => Promise<void>;
+  discardDownload: (modelId: string) => Promise<void>;
   deleteModel: (filename: string) => Promise<void>;
   loadModel: (modelFile: ModelFile) => Promise<void>;
   unloadModel: () => Promise<void>;
-  generate: (
-    prompt: string,
-    onToken: (token: string) => void
-  ) => Promise<string>;
+  generate: (prompt: string, onToken: (token: string) => void) => Promise<string>;
   stopGeneration: () => void;
   refreshModels: () => Promise<void>;
+  importFromFiles: () => Promise<void>;
   isNativeAvailable: boolean;
 }
 
@@ -97,6 +110,7 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
   const [loadModelError, setLoadModelError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [isNativeAvailable, setIsNativeAvailable] = useState(false);
 
   const llamaContextRef = useRef<any>(null);
@@ -104,21 +118,22 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
   const stopRef = useRef(false);
 
   useEffect(() => {
-    const check = Platform.OS !== "web";
-    setIsNativeAvailable(check);
+    setIsNativeAvailable(Platform.OS !== "web");
     initStorage();
     loadSettings();
   }, []);
 
+  async function ensureModelsDir() {
+    await FileSystem.makeDirectoryAsync(MODELS_DIR, {
+      intermediates: true,
+    }).catch(() => {});
+  }
+
   async function initStorage() {
     try {
-      const info = await FileSystem.getInfoAsync(MODELS_DIR);
-      if (!info.exists) {
-        await FileSystem.makeDirectoryAsync(MODELS_DIR, {
-          intermediates: true,
-        });
-      }
+      await ensureModelsDir();
       await refreshModels();
+      await loadSavedResumeStates();
     } catch (e) {
       console.warn("Storage init error:", e);
     }
@@ -127,31 +142,94 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
   async function loadSettings() {
     try {
       const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-      if (raw) {
-        setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
-      }
+      if (raw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
     } catch (e) {
       console.warn("Load settings error:", e);
     }
   }
 
-  const updateSettings = useCallback(
-    async (partial: Partial<LlamaSettings>) => {
-      setSettings((prev) => {
-        const next = { ...prev, ...partial };
-        AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next)).catch(
-          console.warn
-        );
-        return next;
-      });
-    },
-    []
-  );
+  async function loadSavedResumeStates() {
+    try {
+      const raw = await AsyncStorage.getItem(RESUME_STATES_KEY);
+      if (!raw) return;
+      const states: SavedResumeState[] = JSON.parse(raw);
+      if (!states.length) return;
+
+      const resumeDownloads: Record<string, DownloadState> = {};
+      for (const s of states) {
+        // Only show as paused if the partial file still exists
+        const info = await FileSystem.getInfoAsync(s.fileUri, { size: true });
+        if (info.exists && (info as any).size > 0) {
+          resumeDownloads[s.modelId] = {
+            modelId: s.modelId,
+            progress: s.progress,
+            isDownloading: false,
+            isPaused: true,
+          };
+        } else {
+          // Partial file gone — remove this saved state
+          await removeSavedResumeState(s.modelId);
+        }
+      }
+      if (Object.keys(resumeDownloads).length > 0) {
+        setDownloads((prev) => ({ ...prev, ...resumeDownloads }));
+      }
+    } catch (e) {
+      console.warn("Load resume states error:", e);
+    }
+  }
+
+  async function saveSavedResumeState(state: SavedResumeState) {
+    try {
+      const raw = await AsyncStorage.getItem(RESUME_STATES_KEY);
+      const states: SavedResumeState[] = raw ? JSON.parse(raw) : [];
+      const filtered = states.filter((s) => s.modelId !== state.modelId);
+      await AsyncStorage.setItem(
+        RESUME_STATES_KEY,
+        JSON.stringify([...filtered, state])
+      );
+    } catch (e) {
+      console.warn("Save resume state error:", e);
+    }
+  }
+
+  async function removeSavedResumeState(modelId: string) {
+    try {
+      const raw = await AsyncStorage.getItem(RESUME_STATES_KEY);
+      const states: SavedResumeState[] = raw ? JSON.parse(raw) : [];
+      await AsyncStorage.setItem(
+        RESUME_STATES_KEY,
+        JSON.stringify(states.filter((s) => s.modelId !== modelId))
+      );
+    } catch (e) {
+      console.warn("Remove resume state error:", e);
+    }
+  }
+
+  async function getSavedResumeState(
+    modelId: string
+  ): Promise<SavedResumeState | null> {
+    try {
+      const raw = await AsyncStorage.getItem(RESUME_STATES_KEY);
+      if (!raw) return null;
+      const states: SavedResumeState[] = JSON.parse(raw);
+      return states.find((s) => s.modelId === modelId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  const updateSettings = useCallback(async (partial: Partial<LlamaSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...partial };
+      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next)).catch(console.warn);
+      return next;
+    });
+  }, []);
 
   const refreshModels = useCallback(async () => {
     try {
-      const info = await FileSystem.getInfoAsync(MODELS_DIR);
-      if (!info.exists) return;
+      await ensureModelsDir();
       const files = await FileSystem.readDirectoryAsync(MODELS_DIR);
       const ggufFiles = files.filter((f) => f.endsWith(".gguf"));
       const models: ModelFile[] = await Promise.all(
@@ -171,140 +249,263 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
       setDownloadedModels(models);
 
       const savedActive = await AsyncStorage.getItem(ACTIVE_MODEL_KEY);
-      if (savedActive && !activeModel) {
+      if (savedActive) {
         const found = models.find((m) => m.filename === savedActive);
         if (found) setActiveModel(found);
       }
     } catch (e) {
       console.warn("Refresh models error:", e);
     }
-  }, [activeModel]);
+  }, []);
 
-  const downloadModel = useCallback(async (preset: ModelPreset) => {
-    const modelId = preset.id;
-    setDownloads((prev) => ({
-      ...prev,
-      [modelId]: { modelId, progress: 0, isDownloading: true },
-    }));
-
+  async function resolveUrl(url: string): Promise<string> {
     try {
-      // Always ensure the directory exists before downloading
-      await FileSystem.makeDirectoryAsync(MODELS_DIR, { intermediates: true }).catch(() => {});
+      const res = await fetch(url, { method: "HEAD", redirect: "follow" });
+      if (res.url && res.url !== url) return res.url;
+    } catch {}
+    return url;
+  }
 
-      const destPath = MODELS_DIR + preset.filename;
+  function buildErrorMessage(e: any): string {
+    const msg: string = e?.message ?? "";
+    if (msg.includes("Network request failed") || msg.includes("ERR_NETWORK"))
+      return "Network error — check your Wi-Fi and try again.";
+    if (msg.includes("404"))
+      return "Model file not found on server (URL may have changed).";
+    if (msg.includes("No space"))
+      return "Not enough storage space on your device.";
+    return msg || "Download failed — tap Retry to try again.";
+  }
 
-      // Check if already downloaded with a non-zero size
-      const existing = await FileSystem.getInfoAsync(destPath, { size: true });
-      if (existing.exists && (existing as any).size > 0) {
+  async function runDownload(
+    preset: ModelPreset,
+    destPath: string,
+    resumeData?: string,
+    startUrl?: string
+  ) {
+    const modelId = preset.id;
+    const finalUrl = startUrl ?? (await resolveUrl(preset.url));
+
+    const resumable = FileSystem.createDownloadResumable(
+      finalUrl,
+      destPath,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 PocketAI/1.0",
+        },
+      },
+      (progress) => {
+        const pct =
+          progress.totalBytesExpectedToWrite > 0
+            ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+            : 0;
+        setDownloads((prev) => ({
+          ...prev,
+          [modelId]: {
+            modelId,
+            progress: pct,
+            isDownloading: true,
+            isPaused: false,
+          },
+        }));
+      },
+      resumeData
+    );
+
+    downloadResumablesRef.current[modelId] = resumable;
+    const result = await resumable.downloadAsync();
+    delete downloadResumablesRef.current[modelId];
+    return { result, finalUrl };
+  }
+
+  const downloadModel = useCallback(
+    async (preset: ModelPreset) => {
+      const modelId = preset.id;
+      await ensureModelsDir();
+
+      setDownloads((prev) => ({
+        ...prev,
+        [modelId]: { modelId, progress: 0, isDownloading: true, isPaused: false },
+      }));
+
+      try {
+        const destPath = MODELS_DIR + preset.filename;
+
+        const existing = await FileSystem.getInfoAsync(destPath, { size: true });
+        if (existing.exists && (existing as any).size > 0) {
+          setDownloads((prev) => {
+            const next = { ...prev };
+            delete next[modelId];
+            return next;
+          });
+          await refreshModels();
+          return;
+        }
+        if (existing.exists) {
+          await FileSystem.deleteAsync(destPath, { idempotent: true });
+        }
+
+        const { result, finalUrl } = await runDownload(preset, destPath);
+
+        if (!result?.uri) {
+          await FileSystem.deleteAsync(destPath, { idempotent: true });
+          throw new Error("Download cancelled or returned no data.");
+        }
+
+        await removeSavedResumeState(modelId);
         setDownloads((prev) => {
           const next = { ...prev };
           delete next[modelId];
           return next;
         });
         await refreshModels();
-        return;
-      }
+      } catch (e: any) {
+        delete downloadResumablesRef.current[modelId];
+        const isCancelled =
+          e?.message?.toLowerCase().includes("cancel") ||
+          e?.code === "E_CANCELLED" ||
+          e?.code === "ERR_CANCELED";
 
-      // Delete any partial/zero-byte file from a previous failed attempt
-      if (existing.exists) {
-        await FileSystem.deleteAsync(destPath, { idempotent: true });
-      }
-
-      // Resolve the final URL — HuggingFace uses redirects to their CDN.
-      // expo-file-system on Android can fail to follow cross-domain redirects,
-      // so we resolve the final URL with fetch first.
-      let finalUrl = preset.url;
-      try {
-        const res = await fetch(preset.url, {
-          method: "HEAD",
-          redirect: "follow",
-        });
-        if (res.url && res.url !== preset.url) {
-          finalUrl = res.url;
-        }
-      } catch {
-        // HEAD may fail for some CDNs — fall back to original URL
-      }
-
-      const downloadResumable = FileSystem.createDownloadResumable(
-        finalUrl,
-        destPath,
-        {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 PocketAI/1.0",
-          },
-        },
-        (progress) => {
-          const pct =
-            progress.totalBytesExpectedToWrite > 0
-              ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
-              : 0;
+        if (!isCancelled) {
           setDownloads((prev) => ({
             ...prev,
-            [modelId]: { modelId, progress: pct, isDownloading: true },
+            [modelId]: {
+              modelId,
+              progress: prev[modelId]?.progress ?? 0,
+              isDownloading: false,
+              isPaused: false,
+              error: buildErrorMessage(e),
+            },
           }));
         }
-      );
+      }
+    },
+    [refreshModels]
+  );
 
-      downloadResumablesRef.current[modelId] = downloadResumable;
-      const result = await downloadResumable.downloadAsync();
+  const pauseDownload = useCallback(async (modelId: string) => {
+    const resumable = downloadResumablesRef.current[modelId];
+    if (!resumable) return;
+    try {
+      const pauseResult = await resumable.pauseAsync();
+      delete downloadResumablesRef.current[modelId];
 
-      if (!result?.uri) {
-        // Clean up partial file
-        await FileSystem.deleteAsync(destPath, { idempotent: true });
-        throw new Error("Download was cancelled or returned no data.");
+      if (pauseResult?.resumeData) {
+        const stateInDownloads = await new Promise<DownloadState | undefined>(
+          (resolve) => {
+            setDownloads((prev) => {
+              resolve(prev[modelId]);
+              return prev;
+            });
+          }
+        );
+
+        // Find the preset by modelId to store alongside resume state
+        const preset = PRESET_MODELS.find((p) => p.id === modelId);
+        if (preset) {
+          await saveSavedResumeState({
+            modelId,
+            url: pauseResult.url ?? "",
+            fileUri: pauseResult.fileUri ?? MODELS_DIR + preset.filename,
+            resumeData: pauseResult.resumeData,
+            progress: stateInDownloads?.progress ?? 0,
+            preset,
+          });
+        }
       }
 
-      setDownloads((prev) => {
-        const next = { ...prev };
-        delete next[modelId];
-        return next;
-      });
-      delete downloadResumablesRef.current[modelId];
-      await refreshModels();
-    } catch (e: any) {
-      delete downloadResumablesRef.current[modelId];
+      setDownloads((prev) => ({
+        ...prev,
+        [modelId]: {
+          ...prev[modelId],
+          isDownloading: false,
+          isPaused: true,
+        },
+      }));
+    } catch (e) {
+      console.warn("Pause error:", e);
+    }
+  }, []);
 
-      const isCancelled =
-        e?.message?.toLowerCase().includes("cancel") ||
-        e?.code === "E_CANCELLED" ||
-        e?.code === "ERR_CANCELED";
+  const resumeDownload = useCallback(
+    async (modelId: string) => {
+      const saved = await getSavedResumeState(modelId);
+      if (!saved) return;
 
-      if (isCancelled) {
+      setDownloads((prev) => ({
+        ...prev,
+        [modelId]: {
+          modelId,
+          progress: saved.progress,
+          isDownloading: true,
+          isPaused: false,
+        },
+      }));
+
+      try {
+        const { result } = await runDownload(
+          saved.preset,
+          saved.fileUri,
+          saved.resumeData,
+          saved.url
+        );
+
+        if (!result?.uri) {
+          await FileSystem.deleteAsync(saved.fileUri, { idempotent: true });
+          throw new Error("Resume returned no data.");
+        }
+
+        await removeSavedResumeState(modelId);
         setDownloads((prev) => {
           const next = { ...prev };
           delete next[modelId];
           return next;
         });
-      } else {
-        const msg =
-          e?.message?.includes("Network request failed") ||
-          e?.message?.includes("ERR_NETWORK")
-            ? "Network error — check your Wi-Fi connection and try again."
-            : e?.message?.includes("404")
-            ? "Model file not found on server (URL may have changed)."
-            : (e?.message ?? "Download failed — tap Retry to try again.");
+        await refreshModels();
+      } catch (e: any) {
+        delete downloadResumablesRef.current[modelId];
+        const isCancelled =
+          e?.message?.toLowerCase().includes("cancel") ||
+          e?.code === "E_CANCELLED";
 
-        setDownloads((prev) => ({
-          ...prev,
-          [modelId]: {
-            modelId,
-            progress: 0,
-            isDownloading: false,
-            error: msg,
-          },
-        }));
+        if (!isCancelled) {
+          setDownloads((prev) => ({
+            ...prev,
+            [modelId]: {
+              modelId,
+              progress: prev[modelId]?.progress ?? 0,
+              isDownloading: false,
+              isPaused: false,
+              error: buildErrorMessage(e),
+            },
+          }));
+        }
       }
-    }
-  }, [refreshModels]);
+    },
+    [refreshModels]
+  );
 
-  const cancelDownload = useCallback((modelId: string) => {
+  const discardDownload = useCallback(async (modelId: string) => {
     const resumable = downloadResumablesRef.current[modelId];
     if (resumable) {
-      resumable.pauseAsync().catch(() => {});
+      try { await resumable.pauseAsync(); } catch {}
       delete downloadResumablesRef.current[modelId];
     }
+
+    const saved = await getSavedResumeState(modelId);
+    if (saved?.fileUri) {
+      await FileSystem.deleteAsync(saved.fileUri, { idempotent: true });
+    }
+
+    const preset = PRESET_MODELS.find((p) => p.id === modelId);
+    if (preset) {
+      await FileSystem.deleteAsync(MODELS_DIR + preset.filename, {
+        idempotent: true,
+      });
+    }
+
+    await removeSavedResumeState(modelId);
     setDownloads((prev) => {
       const next = { ...prev };
       delete next[modelId];
@@ -315,8 +516,7 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
   const deleteModel = useCallback(
     async (filename: string) => {
       try {
-        const path = MODELS_DIR + filename;
-        await FileSystem.deleteAsync(path, { idempotent: true });
+        await FileSystem.deleteAsync(MODELS_DIR + filename, { idempotent: true });
         if (activeModel?.filename === filename) {
           await unloadModel();
           setActiveModel(null);
@@ -330,19 +530,51 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
     [activeModel, refreshModels]
   );
 
+  const importFromFiles = useCallback(async () => {
+    if (Platform.OS === "web") return;
+    setIsImporting(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        copyToCacheDirectory: false,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      if (!asset.name.endsWith(".gguf")) {
+        throw new Error("Only .gguf files are supported.");
+      }
+
+      await ensureModelsDir();
+      const destPath = MODELS_DIR + asset.name;
+
+      const existing = await FileSystem.getInfoAsync(destPath, { size: true });
+      if (existing.exists && (existing as any).size > 0) {
+        await refreshModels();
+        return;
+      }
+
+      await FileSystem.copyAsync({ from: asset.uri, to: destPath });
+      await refreshModels();
+    } catch (e: any) {
+      console.warn("Import error:", e);
+    } finally {
+      setIsImporting(false);
+    }
+  }, [refreshModels]);
+
   const loadModel = useCallback(
     async (modelFile: ModelFile) => {
       if (Platform.OS === "web") return;
       setIsLoadingModel(true);
       setLoadModelError(null);
-
       try {
         if (llamaContextRef.current) {
           await llamaContextRef.current.release();
           llamaContextRef.current = null;
           setIsModelLoaded(false);
         }
-
         const { initLlama } = await import("llama.rn");
         const ctx = await initLlama({
           model: modelFile.path,
@@ -367,9 +599,7 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
 
   const unloadModel = useCallback(async () => {
     if (llamaContextRef.current) {
-      try {
-        await llamaContextRef.current.release();
-      } catch {}
+      try { await llamaContextRef.current.release(); } catch {}
       llamaContextRef.current = null;
     }
     setIsModelLoaded(false);
@@ -385,19 +615,15 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
 
   const generate = useCallback(
     async (prompt: string, onToken: (token: string) => void): Promise<string> => {
-      if (!llamaContextRef.current) {
-        throw new Error("No model loaded");
-      }
+      if (!llamaContextRef.current) throw new Error("No model loaded");
       stopRef.current = false;
       setIsGenerating(true);
-
       let fullResponse = "";
       const stopTokens = activeModel?.preset?.stopTokens ?? [
         "</s>",
         "<|im_end|>",
         "<|eot_id|>",
       ];
-
       try {
         await llamaContextRef.current.completion(
           {
@@ -419,7 +645,6 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
         setIsGenerating(false);
         stopRef.current = false;
       }
-
       return fullResponse.trim();
     },
     [activeModel, settings]
@@ -435,14 +660,18 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
     loadModelError,
     downloads,
     isGenerating,
+    isImporting,
     downloadModel,
-    cancelDownload,
+    pauseDownload,
+    resumeDownload,
+    discardDownload,
     deleteModel,
     loadModel,
     unloadModel,
     generate,
     stopGeneration,
     refreshModels,
+    importFromFiles,
     isNativeAvailable,
   };
 

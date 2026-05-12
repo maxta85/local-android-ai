@@ -4,7 +4,6 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,8 +11,8 @@ import {
 } from "react-native";
 
 import { DownloadState, ModelFile, useLlama } from "@/context/LlamaContext";
-import { ModelPreset } from "@/utils/models";
 import { useColors } from "@/hooks/useColors";
+import { ModelPreset } from "@/utils/models";
 
 interface Props {
   preset: ModelPreset;
@@ -31,26 +30,52 @@ export default function ModelCard({
   onLoad,
 }: Props) {
   const colors = useColors();
-  const { downloadModel, cancelDownload, deleteModel } = useLlama();
+  const { downloadModel, pauseDownload, resumeDownload, discardDownload, deleteModel } =
+    useLlama();
 
   const isDownloaded = !!downloadedFile;
   const isDownloading = downloadState?.isDownloading ?? false;
+  const isPaused = downloadState?.isPaused ?? false;
   const progress = downloadState?.progress ?? 0;
-  const hasError = !!downloadState?.error;
+  const hasError = !!downloadState?.error && !isDownloading && !isPaused;
 
   function handleDownload() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     downloadModel(preset);
   }
 
-  function handleCancel() {
-    cancelDownload(preset.id);
+  function handlePause() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    pauseDownload(preset.id);
+  }
+
+  function handleResume() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    resumeDownload(preset.id);
+  }
+
+  function handleDiscard() {
+    Alert.alert(
+      "Discard Download",
+      `Cancel and delete the partial download for ${preset.name}?`,
+      [
+        { text: "Keep Paused", style: "cancel" },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            discardDownload(preset.id);
+          },
+        },
+      ]
+    );
   }
 
   function handleDelete() {
     Alert.alert(
       "Delete Model",
-      `Remove ${preset.name}? You'll need to re-download it.`,
+      `Remove ${preset.name} from your device? You'll need to re-download it.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -86,10 +111,7 @@ export default function ModelCard({
       alignItems: "flex-start",
       marginBottom: 6,
     },
-    nameRow: {
-      flex: 1,
-      gap: 4,
-    },
+    nameRow: { flex: 1, gap: 4 },
     name: {
       color: colors.foreground,
       fontSize: 16,
@@ -119,38 +141,40 @@ export default function ModelCard({
       lineHeight: 18,
       marginBottom: 10,
     },
-    meta: {
-      flexDirection: "row",
-      gap: 12,
-      marginBottom: 12,
-    },
-    metaItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-    },
+    meta: { flexDirection: "row", gap: 12, marginBottom: 12 },
+    metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
     metaText: {
       color: colors.mutedForeground,
       fontSize: 12,
       fontFamily: "Inter_400Regular",
     },
-    progressBar: {
-      height: 4,
-      backgroundColor: colors.border,
-      borderRadius: 2,
-      overflow: "hidden" as const,
+    progressRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
       marginBottom: 10,
     },
+    progressTrack: {
+      flex: 1,
+      height: 5,
+      backgroundColor: colors.border,
+      borderRadius: 3,
+      overflow: "hidden" as const,
+    },
     progressFill: {
-      height: 4,
-      backgroundColor: colors.primary,
-      borderRadius: 2,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: isPaused ? colors.mutedForeground : colors.primary,
       width: `${Math.round(progress * 100)}%`,
     },
-    footer: {
-      flexDirection: "row",
-      gap: 8,
+    progressPct: {
+      color: isPaused ? colors.mutedForeground : colors.primary,
+      fontSize: 11,
+      fontFamily: "Inter_600SemiBold",
+      minWidth: 34,
+      textAlign: "right" as const,
     },
+    footer: { flexDirection: "row", gap: 8 },
     btn: {
       flex: 1,
       height: 38,
@@ -160,28 +184,13 @@ export default function ModelCard({
       flexDirection: "row",
       gap: 6,
     },
-    btnPrimary: {
-      backgroundColor: colors.primary,
-    },
-    btnSecondary: {
-      backgroundColor: colors.surface,
-    },
-    btnDestructive: {
-      backgroundColor: colors.surface,
-    },
-    btnText: {
-      fontSize: 13,
-      fontFamily: "Inter_600SemiBold",
-    },
-    btnTextPrimary: {
-      color: "#fff",
-    },
-    btnTextMuted: {
-      color: colors.mutedForeground,
-    },
-    btnTextDestructive: {
-      color: colors.destructive,
-    },
+    btnPrimary: { backgroundColor: colors.primary },
+    btnSecondary: { backgroundColor: colors.surface },
+    btnDestructive: { backgroundColor: colors.surface },
+    btnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+    btnTextPrimary: { color: "#fff" },
+    btnTextMuted: { color: colors.mutedForeground },
+    btnTextDestructive: { color: colors.destructive },
     activeChip: {
       flexDirection: "row",
       alignItems: "center",
@@ -194,6 +203,21 @@ export default function ModelCard({
     },
     activeText: {
       color: colors.primary,
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+    },
+    pausedChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: colors.mutedForeground + "22",
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      alignSelf: "flex-end" as const,
+    },
+    pausedText: {
+      color: colors.mutedForeground,
       fontSize: 12,
       fontFamily: "Inter_600SemiBold",
     },
@@ -215,6 +239,8 @@ export default function ModelCard({
     },
   });
 
+  const showProgress = (isDownloading || isPaused) && !isDownloaded;
+
   return (
     <View style={styles.card}>
       <View style={styles.header}>
@@ -232,6 +258,12 @@ export default function ModelCard({
           <View style={styles.activeChip}>
             <Feather name="zap" size={11} color={colors.primary} />
             <Text style={styles.activeText}>Active</Text>
+          </View>
+        )}
+        {isPaused && !isActive && (
+          <View style={styles.pausedChip}>
+            <Feather name="pause" size={11} color={colors.mutedForeground} />
+            <Text style={styles.pausedText}>Paused</Text>
           </View>
         )}
       </View>
@@ -253,14 +285,18 @@ export default function ModelCard({
         </View>
       </View>
 
-      {isDownloading && (
-        <View style={styles.progressBar}>
-          <View style={styles.progressFill} />
+      {showProgress && (
+        <View style={styles.progressRow}>
+          <View style={styles.progressTrack}>
+            <View style={styles.progressFill} />
+          </View>
+          <Text style={styles.progressPct}>{Math.round(progress * 100)}%</Text>
         </View>
       )}
 
       <View style={styles.footer}>
-        {!isDownloaded && !isDownloading && (
+        {/* Not started + not downloaded */}
+        {!isDownloaded && !isDownloading && !isPaused && !hasError && (
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary]}
             onPress={handleDownload}
@@ -273,19 +309,45 @@ export default function ModelCard({
           </TouchableOpacity>
         )}
 
+        {/* Actively downloading */}
         {isDownloading && (
-          <TouchableOpacity
-            style={[styles.btn, styles.btnSecondary]}
-            onPress={handleCancel}
-            activeOpacity={0.85}
-          >
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={[styles.btnText, styles.btnTextMuted]}>
-              {Math.round(progress * 100)}% — Cancel
-            </Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnSecondary]}
+              onPress={handlePause}
+              activeOpacity={0.85}
+            >
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.btnText, styles.btnTextMuted]}>Pause</Text>
+            </TouchableOpacity>
+          </>
         )}
 
+        {/* Paused / resumable */}
+        {isPaused && !isDownloaded && (
+          <>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary]}
+              onPress={handleResume}
+              activeOpacity={0.85}
+            >
+              <Feather name="play" size={14} color="#fff" />
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Resume</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnDestructive]}
+              onPress={handleDiscard}
+              activeOpacity={0.85}
+            >
+              <Feather name="x" size={14} color={colors.destructive} />
+              <Text style={[styles.btnText, styles.btnTextDestructive]}>
+                Discard
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* Downloaded, not loaded */}
         {isDownloaded && !isActive && (
           <>
             <TouchableOpacity
@@ -294,9 +356,7 @@ export default function ModelCard({
               activeOpacity={0.85}
             >
               <Feather name="zap" size={14} color="#fff" />
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Load
-              </Text>
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Load</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.btn, styles.btnDestructive]}
@@ -311,6 +371,7 @@ export default function ModelCard({
           </>
         )}
 
+        {/* Downloaded and active */}
         {isDownloaded && isActive && (
           <TouchableOpacity
             style={[styles.btn, styles.btnDestructive]}
@@ -324,6 +385,7 @@ export default function ModelCard({
           </TouchableOpacity>
         )}
 
+        {/* Error state */}
         {hasError && !isDownloaded && (
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary]}
