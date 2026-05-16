@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import React, {
@@ -12,6 +13,12 @@ import React, {
 import { Platform } from "react-native";
 
 import { ChatTemplate, ModelPreset, PRESET_MODELS } from "@/utils/models";
+
+function checkIsNativeAvailable(): boolean {
+  if (Platform.OS === "web") return false;
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
+  return true;
+}
 
 const MODELS_DIR = FileSystem.documentDirectory + "models/";
 const SETTINGS_KEY = "llm_settings";
@@ -118,7 +125,7 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
   const stopRef = useRef(false);
 
   useEffect(() => {
-    setIsNativeAvailable(Platform.OS !== "web");
+    setIsNativeAvailable(checkIsNativeAvailable());
     initStorage();
     loadSettings();
   }, []);
@@ -567,6 +574,12 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
   const loadModel = useCallback(
     async (modelFile: ModelFile) => {
       if (Platform.OS === "web") return;
+      if (!checkIsNativeAvailable()) {
+        setLoadModelError(
+          "LLM inference requires a native build. Install the APK from EAS — Expo Go cannot run local models."
+        );
+        return;
+      }
       setIsLoadingModel(true);
       setLoadModelError(null);
       try {
