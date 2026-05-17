@@ -25,6 +25,9 @@
 #     - typescript
 #
 # ============================================================================
+patchedDependencies:
+  llama.rn@0.12.0: patches/llama.rn@0.12.0.patch
+
 minimumReleaseAge: 1440
 
 minimumReleaseAgeExclude:
