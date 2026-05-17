@@ -1,0 +1,26 @@
+--- a/android/src/main/java/com/rnllama/RNLlamaModule.java
++++ b/android/src/main/java/com/rnllama/RNLlamaModule.java
+@@ -34,8 +34,21 @@
+       }
+ 
+       long jsContextPointer = context.getJavaScriptContextHolder().get();
+-      CallInvokerHolderImpl holder =
+-        (CallInvokerHolderImpl) context.getCatalystInstance().getJSCallInvokerHolder();
++
++      CallInvokerHolderImpl holder = null;
++      // Old Architecture: get invoker through CatalystInstance
++      try {
++        com.facebook.react.bridge.CatalystInstance ci = context.getCatalystInstance();
++        if (ci != null) {
++          holder = (CallInvokerHolderImpl) ci.getJSCallInvokerHolder();
++        }
++      } catch (Exception ignored) {}
++      // New Architecture: BridgelessReactContext overrides getJSCallInvokerHolder()
++      if (holder == null) {
++        try {
++          holder = (CallInvokerHolderImpl) context.getJSCallInvokerHolder();
++        } catch (Exception ignored) {}
++      }
+ 
+       if (jsContextPointer == 0 || holder == null) {
+         promise.resolve(false);
