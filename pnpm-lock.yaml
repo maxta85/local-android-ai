@@ -151,19 +151,17 @@ overrides:
   esbuild: 0.27.3
 
 patchedDependencies:
-  llama.rn@0.12.0:
-    hash: c177cb2df8f7d64bd91ac3eaa6be015cd9ac134d78a9daef1b7d6886307c4f83
-    path: patches/llama.rn@0.12.0.patch
+  llama.rn@0.12.0: c177cb2df8f7d64bd91ac3eaa6be015cd9ac134d78a9daef1b7d6886307c4f83
 
 importers:
 
   .:
     devDependencies:
       prettier:
-        specifier: ^3.8.3
+        specifier: ^3.8.1
         version: 3.8.3
       typescript:
-        specifier: ~5.9.3
+        specifier: ~5.9.2
         version: 5.9.3
 
   artifacts/api-server:
@@ -178,19 +176,19 @@ importers:
         specifier: ^1.4.7
         version: 1.4.7
       cors:
-        specifier: ^2.8.6
+        specifier: ^2
         version: 2.8.6
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
       express:
-        specifier: ^5.2.1
+        specifier: ^5
         version: 5.2.1
       pino:
-        specifier: ^9.14.0
+        specifier: ^9
         version: 9.14.0
       pino-http:
-        specifier: ^10.5.0
+        specifier: ^10
         version: 10.5.0
     devDependencies:
       '@types/cookie-parser':
@@ -212,7 +210,7 @@ importers:
         specifier: ^2.3.3
         version: 2.3.3(esbuild@0.27.3)(pino-pretty@13.1.3)(pino@9.14.0)(thread-stream@3.1.0)
       pino-pretty:
-        specifier: ^13.1.3
+        specifier: ^13
         version: 13.1.3
       thread-stream:
         specifier: 3.1.0
@@ -441,7 +439,7 @@ importers:
         specifier: ^1.1.13
         version: 1.1.13(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       '@radix-ui/react-toast':
-        specifier: ^1.2.15
+        specifier: ^1.2.7
         version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       '@radix-ui/react-toggle':
         specifier: ^1.1.10
@@ -510,13 +508,13 @@ importers:
         specifier: 'catalog:'
         version: 19.1.0
       react-day-picker:
-        specifier: ^9.14.0
+        specifier: ^9.11.1
         version: 9.14.0(react@19.1.0)
       react-dom:
         specifier: 'catalog:'
         version: 19.1.0(react@19.1.0)
       react-hook-form:
-        specifier: ^7.75.0
+        specifier: ^7.66.0
         version: 7.75.0(react@19.1.0)
       react-resizable-panels:
         specifier: ^2.1.9
@@ -558,7 +556,7 @@ importers:
   lib/api-spec:
     devDependencies:
       orval:
-        specifier: ^8.9.1
+        specifier: ^8.5.2
         version: 8.9.1(prettier@3.8.3)(typescript@5.9.3)
 
   lib/api-zod:
@@ -586,10 +584,10 @@ importers:
         specifier: 'catalog:'
         version: 25.6.2
       '@types/pg':
-        specifier: ^8.20.0
+        specifier: ^8.18.0
         version: 8.20.0
       drizzle-kit:
-        specifier: ^0.31.10
+        specifier: ^0.31.9
         version: 0.31.10
 
   scripts:
