@@ -258,7 +258,10 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
       const savedActive = await AsyncStorage.getItem(ACTIVE_MODEL_KEY);
       if (savedActive) {
         const found = models.find((m) => m.filename === savedActive);
-        if (found) setActiveModel(found);
+        if (found) {
+          setActiveModel(found);
+          setIsModelLoaded(true);
+        }
       }
     } catch (e) {
       console.warn("Refresh models error:", e);
@@ -617,13 +620,13 @@ export function LlamaProvider({ children }: { children: React.ReactNode }) {
     }
     setIsModelLoaded(false);
     setActiveModel(null);
+    await AsyncStorage.removeItem(ACTIVE_MODEL_KEY);
   }, []);
 
   const stopGeneration = useCallback(() => {
     stopRef.current = true;
-    if (llamaContextRef.current) {
-      llamaContextRef.current.stopCompletion().catch(() => {});
-    }
+    // Don't call stopCompletion() - it crashes the native module
+    // The generate() callback checks stopRef.current and exits gracefully
   }, []);
 
   const generate = useCallback(
