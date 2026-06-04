@@ -1,7 +1,11 @@
 import { Feather } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { router } from "expo-router";
-import React from "react";
+import * as Updates from "expo-updates";
+import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -29,6 +33,7 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { settings, updateSettings } = useLlama();
+  const [isChecking, setIsChecking] = useState(false);
 
   const styles = StyleSheet.create({
     container: {
@@ -113,6 +118,26 @@ export default function SettingsScreen() {
       fontSize: 12,
       fontFamily: "Inter_400Regular",
     },
+    aboutRow: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    aboutLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    aboutIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     slider: {
       flexDirection: "row",
       alignItems: "center",
@@ -183,6 +208,37 @@ export default function SettingsScreen() {
           : 24,
     },
   });
+
+  async function handleAboutPress() {
+    if (!Updates.isEnabled) {
+      Alert.alert(
+        "Updates unavailable",
+        "OTA updates are only available in production builds."
+      );
+      return;
+    }
+    setIsChecking(true);
+    try {
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        Alert.alert(
+          "Update ready",
+          "A new version has been downloaded.",
+          [
+            { text: "Later", style: "cancel" },
+            { text: "Restart now", onPress: () => Updates.reloadAsync() },
+          ]
+        );
+      } else {
+        Alert.alert("Up to date", "You're on the latest version.");
+      }
+    } catch (e: any) {
+      Alert.alert("Update check failed", e?.message ?? "Unknown error");
+    } finally {
+      setIsChecking(false);
+    }
+  }
 
   function SliderRow({
     label,
@@ -390,6 +446,37 @@ export default function SettingsScreen() {
             onChange={(v) => updateSettings({ nGpuLayers: v })}
           />
         </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.card}
+          activeOpacity={0.7}
+          onPress={handleAboutPress}
+        >
+          <View style={styles.aboutRow}>
+            <View style={styles.aboutLeft}>
+              <View style={styles.aboutIcon}>
+                <Text style={{ fontSize: 18 }}>🤖</Text>
+              </View>
+              <View>
+                <Text style={styles.rowLabel}>Pocket AI</Text>
+                <Text style={styles.rowHint}>Tap to check for updates</Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={styles.rowValue}>
+                v{Constants.expoConfig?.version ?? "1.0.0"}
+              </Text>
+              {isChecking ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
 
         <View style={styles.spacer} />
       </ScrollView>
