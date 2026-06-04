@@ -44,6 +44,7 @@ export default function ChatScreen() {
     activeModel,
     generate,
     stopGeneration,
+    unloadModel,
     settings,
     isLoadingModel,
     isNativeAvailable,
@@ -107,6 +108,24 @@ export default function ChatScreen() {
       activeConversation,
     ]
   );
+
+  function handleUnload() {
+    Alert.alert(
+      "Unload model?",
+      `${activeModel?.preset?.name ?? activeModel?.filename} will be released from memory.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unload",
+          style: "destructive",
+          onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            unloadModel();
+          },
+        },
+      ]
+    );
+  }
 
   function handleLongPress(message: Message) {
     Alert.alert("Message", undefined, [
@@ -269,6 +288,14 @@ export default function ChatScreen() {
           >
             <Feather name="plus" size={20} color={colors.mutedForeground} />
           </TouchableOpacity>
+          {isModelLoaded && !isGenerating && (
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={handleUnload}
+            >
+              <Feather name="log-out" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => router.push("/(tabs)/settings")}
