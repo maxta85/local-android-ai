@@ -59,7 +59,7 @@
     "expo-clipboard": "~8.0.8",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.22",
-    "expo-updates": "~0.27.5",
+    "expo-updates": "~29.0.17",
     "llama.rn": "^0.12.0"
   }
 }
