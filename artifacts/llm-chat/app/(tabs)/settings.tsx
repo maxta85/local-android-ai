@@ -1,7 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import * as Updates from "expo-updates";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -210,7 +209,17 @@ export default function SettingsScreen() {
   });
 
   async function handleAboutPress() {
-    if (!Updates.isEnabled) {
+    let Updates: typeof import("expo-updates") | null = null;
+    try {
+      Updates = require("expo-updates");
+    } catch {
+      Alert.alert(
+        "Updates unavailable",
+        "OTA updates are only available in production builds."
+      );
+      return;
+    }
+    if (!Updates?.isEnabled) {
       Alert.alert(
         "Updates unavailable",
         "OTA updates are only available in production builds."
