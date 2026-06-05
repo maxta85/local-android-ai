@@ -5,12 +5,14 @@
   "build": {
     "preview": {
       "node": "22.13.0",
+      "channel": "preview",
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "node": "22.13.0",
+      "channel": "production",
       "android": {
         "buildType": "app-bundle"
       }
