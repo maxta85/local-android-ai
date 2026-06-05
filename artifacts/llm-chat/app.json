@@ -45,7 +45,12 @@
       ]
     ],
     "updates": {
-      "url": "https://u.expo.dev/8d6b541e-2441-409a-901c-354ab1c26c9e"
+      "url": "https://u.expo.dev/8d6b541e-2441-409a-901c-354ab1c26c9e",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     },
     "experiments": {
       "typedRoutes": true,
